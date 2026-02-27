@@ -11,8 +11,8 @@ const medicineSchema = new mongoose.Schema({
         required: true
     },
     times: [{
-        time: {
-            type: String, // HH:MM format
+        timeUTC: {
+            type: String, // HH:MM format in UTC
             required: true
         },
         status: {
@@ -50,6 +50,19 @@ const medicineSchema = new mongoose.Schema({
     imageUrl: {
         type: String,
         default: null
+    },
+    startDate: {
+        type: Date,
+        required: false,
+    },
+    endDate: {
+        type: Date,
+        required: false,
+    },
+    status: {
+        type: String,
+        enum: ['active', 'completed'],
+        default: 'active'
     }
 }, {
     timestamps: true // adds createdAt

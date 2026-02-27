@@ -23,7 +23,15 @@ const userSchema = new mongoose.Schema({
     linkedUsers: [{
         type: String,
         ref: 'User'
-    }]
+    }],
+    country: {
+        type: String,
+        default: "India"
+    },
+    timezone: {
+        type: String,
+        default: "Asia/Kolkata"
+    }
 }, {
     timestamps: true // adds createdAt and updatedAt
 });

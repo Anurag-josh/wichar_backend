@@ -129,20 +129,31 @@ router.post('/upload-medicine-image', upload.single('image'), async (req, res) =
 // POST /add-medicine
 router.post('/add-medicine', async (req, res) => {
     try {
-        const { name, time, times, patientId, createdBy, totalQuantity } = req.body;
+        const { name, timeUTC, time, times, patientId, createdBy, totalQuantity, startDate, endDate } = req.body;
 
         const scheduledDate = req.body.scheduledDate || new Date().toISOString().split('T')[0];
 
-        const timesArray = times ? times.map(t => ({ time: t, status: 'pending' })) : [{ time, status: 'pending' }];
+        // Ensure we capture either timeUTC or time safely depending on payload.
+        const mappedTime = timeUTC || time;
+        const timesArray = times ? times.map(t => ({ timeUTC: t, status: 'pending' })) : [{ timeUTC: mappedTime, status: 'pending' }];
 
-        const medicine = new Medicine({
+        const medicineData = {
             name,
             times: timesArray,
             patientId,
             createdBy,
             scheduledDate,
             ...(totalQuantity !== undefined && totalQuantity !== '' && { totalQuantity: Number(totalQuantity) })
-        });
+        };
+
+        if (startDate) medicineData.startDate = new Date(startDate);
+        if (endDate) {
+            const end = new Date(endDate);
+            end.setHours(23, 59, 59, 999); // Set to end of the day
+            medicineData.endDate = end;
+        }
+
+        const medicine = new Medicine(medicineData);
 
         await medicine.save();
 
@@ -161,6 +172,19 @@ router.get('/medicines', async (req, res) => {
         if (!patientId) {
             return res.status(400).json({ success: false, error: 'patientId is required' });
         }
+
+        // Automatic Expiry Handling
+        const today = new Date();
+
+        await Medicine.updateMany(
+            {
+                patientId,
+                endDate: { $exists: true, $ne: null, $lt: today },
+                status: 'active'
+            },
+            { $set: { status: 'completed' } }
+        );
+
         const medicines = await Medicine.find({ patientId });
         res.json({ success: true, medicines });
     } catch (error) {
@@ -186,8 +210,8 @@ router.put('/medicines/:id', async (req, res) => {
         }
         if (times) {
             medicine.times = times.map(t => {
-                const existing = medicine.times.find(et => et.time === t);
-                return existing ? existing : { time: t, status: 'pending' };
+                const existing = medicine.times.find(et => et.timeUTC === t);
+                return existing ? existing : { timeUTC: t, status: 'pending' };
             });
         }
         await medicine.save();
@@ -212,17 +236,33 @@ router.delete('/medicines/:id', async (req, res) => {
     }
 });
 
+// POST /mark-completed
+router.post('/mark-completed', async (req, res) => {
+    try {
+        const { medicineId } = req.body;
+        const medicine = await Medicine.findByIdAndUpdate(medicineId,
+            { status: 'completed' },
+            { new: true }
+        );
+        if (!medicine) return res.status(404).json({ success: false, error: 'Medicine not found' });
+        res.json({ success: true, medicine });
+    } catch (error) {
+        console.error('Error marking completed:', error);
+        res.status(500).json({ success: false, error: 'Internal Server Error' });
+    }
+});
+
 // POST /mark-taken
 router.post('/mark-taken', async (req, res) => {
     try {
-        const { medicineId, patientId, time } = req.body;
+        const { medicineId, patientId, timeUTC } = req.body;
         // We assume client validates patientId
         const medicine = await Medicine.findById(medicineId);
         if (!medicine) {
             return res.status(404).json({ success: false, error: 'Medicine not found' });
         }
 
-        const timeEntry = medicine.times.find(t => t.time === time);
+        const timeEntry = medicine.times.find(t => t.timeUTC === timeUTC);
         if (timeEntry) {
             timeEntry.status = 'taken';
             timeEntry.dismissedAt = new Date();
@@ -244,14 +284,14 @@ router.post('/mark-taken', async (req, res) => {
 // POST /mark-missed
 router.post('/mark-missed', async (req, res) => {
     try {
-        const { medicineId, patientId, time } = req.body;
+        const { medicineId, patientId, timeUTC } = req.body;
 
         const medicine = await Medicine.findById(medicineId);
         if (!medicine) {
             return res.status(404).json({ success: false, error: 'Medicine not found' });
         }
 
-        const timeEntry = medicine.times.find(t => t.time === time);
+        const timeEntry = medicine.times.find(t => t.timeUTC === timeUTC);
         if (timeEntry) {
             timeEntry.status = 'missed';
             timeEntry.missedAt = new Date();
@@ -276,7 +316,7 @@ router.post('/mark-missed', async (req, res) => {
                 userId: caregiver._id,
                 medicineId: medicine._id,
                 patientId: patient._id,
-                message: `${patient.name} missed the ${time || 'scheduled'} dose of ${medicine.name}`
+                message: `${patient.name} missed the ${timeUTC || 'scheduled'} dose of ${medicine.name}`
             });
             await notification.save();
         }
