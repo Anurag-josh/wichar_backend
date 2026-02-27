@@ -8,6 +8,7 @@ const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const cloudinary = require('cloudinary').v2;
 const path = require('path');
 const twilio = require('twilio');
+const crypto = require('crypto');
 
 // Configure Cloudinary
 cloudinary.config({
