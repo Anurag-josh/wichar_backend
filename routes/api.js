@@ -7,6 +7,7 @@ const multer = require('multer');
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const cloudinary = require('cloudinary').v2;
 const path = require('path');
+const twilio = require('twilio');
 
 // Configure Cloudinary
 cloudinary.config({
@@ -29,16 +30,19 @@ const upload = multer({ storage: storage });
 // POST /create-user
 router.post('/create-user', async (req, res) => {
     try {
-        const { name, role } = req.body;
-
-        // Generate a random 6-character alphanumeric link code
-        const linkCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+        const { name, role, country, timezone, language } = req.body;
+        if (!name || !role) {
+            return res.status(400).json({ success: false, error: 'Name and role are required' });
+        }
+        const linkCode = crypto.randomBytes(3).toString('hex').toUpperCase();
 
         const user = new User({
             name,
             role,
             linkCode,
-            linkedUsers: []
+            ...(country && { country }),
+            ...(timezone && { timezone }),
+            ...(language && { language })
         });
 
         await user.save();
@@ -339,8 +343,40 @@ router.get('/notifications', async (req, res) => {
         const notifications = await Notification.find({ userId }).sort({ createdAt: -1 });
         res.json({ success: true, notifications });
     } catch (error) {
-        console.error('Error fetching notifications:', error);
         res.status(500).json({ success: false, error: 'Internal Server Error' });
+    }
+});
+
+// POST /trigger-call
+router.post('/trigger-call', async (req, res) => {
+    try {
+        const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+        const call = await twilioClient.calls.create({
+            from: process.env.TWILIO_NUMBER,
+            to: process.env.CALL_TO_NUMBER,
+            twiml: `
+                <Response>
+                  <Pause length="1"/>
+                  <Say language="en-IN" voice="alice">
+                    नमस्कार.
+                    तुमची औषधे घेण्याची वेळ झाली आहे.
+                    कृपया आता औषध घ्या.
+                  </Say>
+                  <Pause length="1"/>
+                  <Say language="en-IN" voice="alice">
+                    जर तुम्ही औषध घेतले असेल तर १ दाबा, जर तुम्ही औषध घेतले नसेल तर २ दाबा.
+                  </Say>
+                  <Pause length="1"/>
+                  <Say language="en-IN" voice="alice">
+                    धन्यवाद.
+                  </Say>
+                </Response>
+            `
+        });
+        res.json({ success: true, sid: call.sid });
+    } catch (error) {
+        console.error('Twilio Call Error:', error);
+        res.status(500).json({ success: false, error: 'Failed to trigger call' });
     }
 });
 

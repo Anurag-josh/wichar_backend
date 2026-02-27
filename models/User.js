@@ -10,6 +10,10 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: true
     },
+    language: {
+        type: String,
+        default: 'en'
+    },
     role: {
         type: String,
         enum: ['patient', 'caregiver'],
